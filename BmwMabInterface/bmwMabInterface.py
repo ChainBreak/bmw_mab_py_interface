@@ -8,11 +8,47 @@ import threading
 import weakref
 
 class BmwMabInterface():
-	#Constructor
-	def __init__(self,mab_ip):
+	"""
+	---BMW MicroAutoBox Interface---
+	This is an ethernet interface to the MicroAutoBox which controls
+	the self driving BMW. The interface has two asynchronous loops, one that
+	continuously reads and one that continuously writes to the MicroAutoBox
+	over the UDP enthernet connection. 
+	
+	The BmwMabInterface class must be instaciated inside a with context 
+	manager.
+	e.g.
+	with BmwMabInterface() as bmw:
+		bmw.setCarData("ref_steering_angle",25.0)
+	
+	Reading Data:
+	The mehtod getRecvDataDescription() returns a list of all the variables
+	that are received from the MicroAutoBox. All the variables that is read
+	from the MicroAutoBox are stored in a dictionary that can be accessed 
+	with getCarData(variable_name).
+	e.g. speed = bmw.getCarData("car_velocity")
+	
+	Sending Data:
+	The method getSendDataDescription() returns a list of all the variables
+	that can be written to the MicroAutoBox. All the variables that are 
+	written to the MicroAutoBox are stored in a dictionary that can be
+	modified with setCarData(variable_name,value).
+	e.g. bmw.setCarData("ref_steering_angle",25.0)
+	Note that the variables "heartbeat_counter" and "sys_uptime" are modified
+	internally.
+	
+	Your ip must be 192.168.0.10
+	
+	"""
+	
+	
+	def __init__(self):
+		"""
+		Constructor
+		"""
 		
 		#socket ips and ports
-		self.mab_ip = mab_ip
+		self.mab_ip = "192.168.0.5"
 		self.receive_from_port = 5000
 		self.send_to_port = 5001
 		
@@ -25,10 +61,10 @@ class BmwMabInterface():
 		self.recv_socket.settimeout(1.0)
 		
 		#set up send receive threads
-		self.recv_thread = threading.Thread(target=self.receiveLoop)
+		self.recv_thread = threading.Thread(target=self.__receiveLoop)
 		self.recv_data_lock = threading.Lock()
 		
-		self.send_thread = threading.Thread(target=self.sendLoop)
+		self.send_thread = threading.Thread(target=self.__sendLoop)
 		self.send_data_lock = threading.Lock()
 		
 		#Setup dicts and lists for receive data
@@ -36,7 +72,7 @@ class BmwMabInterface():
 		self.recv_data_dict = {}
 		self.recv_data_name_list = []
 		
-		for fmt,name,desc in self.recvDataDescription():
+		for fmt,name,desc in self.getRecvDataDescription():
 			self.recv_format += fmt
 			self.recv_data_dict[name] = 0.0
 			self.recv_data_name_list.append(name)
@@ -46,24 +82,34 @@ class BmwMabInterface():
 		self.send_data_dict = {}
 		self.send_data_name_list = []
 		
-		for fmt,default,name,desc in self.sendDataDescription():
+		for fmt,default,name,desc in self.getSendDataDescription():
 			self.send_format += fmt
 			self.send_data_dict[name] = default
 			self.send_data_name_list.append(name)
 
 	
-	def __enter__(self):	
+	def __enter__(self):
+		"""
+		The enter method is called by the with context manager.
+		It starts the receiving and sending threads
+		"""	
 		self.running = True
 		self.recv_thread.start()
 		self.send_thread.start()
 		return self
 		
 	def __exit__(self,*args):
+		"""
+		The exit method is called by the with context manager.
+		It stops the receiving and sending threads
+		"""	
 		self.running = False	
 		self.recv_thread.join()
 		self.send_thread.join()
 
-	def receiveLoop(self):
+	def __receiveLoop(self):
+		"""The receive loop method is private and should only be called by
+		the receive thread"""
 		while self.running:
 			try:
 				data, addr = self.recv_socket.recvfrom(1024) # buffer size is 1024 bytes
@@ -81,7 +127,9 @@ class BmwMabInterface():
 			except socket.timeout:
 				pass
 				
-	def sendLoop(self):
+	def __sendLoop(self):
+		"""The send loop method is private and should only be called by
+		the send thread"""
 		counter = 0
 		
 		data = []
@@ -108,22 +156,29 @@ class BmwMabInterface():
 			
 
 
-	def getCarData(self):
+	def getCarData(self, variable_name):
+		"""
+		Call this method to get the value for the variable name given.
+		Call getRecvDataDescription() to get a list of available variables.
+		"""
 		with self.recv_data_lock:
-			return self.recv_data_dict.copy()
+			return self.recv_data_dict[variable_name]
 		
 
-	def setCarData(self,data_dict):
+	def setCarData(self,variable_name, value):
+		"""
+		Call this method to set the value for the variable name given.
+		Call getSendDataDescription() to get a list of available variables.
+		"""
 		with self.send_data_lock:
-			for name in self.send_data_dict.iterkeys():
-				if name in data_dict:
-					self.send_data_dict[name] = data_dict[name]
-					print("%s: %s" % (name, data_dict[name]))
+				if variable_name in self.send_data_dict:
+					self.send_data_dict[variable_name] = value
+					print("%s: %s" % (variable_name, value))
 			
 		
 	
 	
-	def sendDataDescription(self):
+	def getSendDataDescription(self):
 		#(data format, variable name, description)
 		return [
 			("i",0,"heartbeat_counter","Counter 32-bit Increment by one"),
@@ -134,7 +189,7 @@ class BmwMabInterface():
 			("f",0.2,"ref_deacceleration","")
 		]
 	
-	def recvDataDescription(self):
+	def getRecvDataDescription(self):
 		#(data format, variable name, description)
 		return [
 			("i","sys_heartbeat_counter","Counter 32-bit Increment by one"),
