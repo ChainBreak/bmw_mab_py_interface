@@ -58,7 +58,7 @@ class BmwMabInterface():
 		
 		#bind receive socket
 		self.recv_socket.bind(("0.0.0.0", self.receive_from_port))
-		self.recv_socket.settimeout(1.0)
+		self.recv_socket.settimeout(0.1)
 		
 		#set up send receive threads
 		self.recv_thread = threading.Thread(target=self.__receiveLoop)
@@ -110,10 +110,14 @@ class BmwMabInterface():
 	def __receiveLoop(self):
 		"""The receive loop method is private and should only be called by
 		the receive thread"""
+		heartbeat_count = 0
+		last_heartbeat_count = 0
+		watchdog_time = time.time()
 		while self.running:
 			try:
+				#read in data from socket
 				data, addr = self.recv_socket.recvfrom(1024) # buffer size is 1024 bytes
-				bytes = bytearray(data)
+				
 				data_length = struct.calcsize(self.recv_format)
 				dataStruct = struct.unpack(self.recv_format,data[:data_length])
 				
@@ -121,11 +125,21 @@ class BmwMabInterface():
 					for i in range(len(self.recv_data_name_list)):
 						name = self.recv_data_name_list[i]
 						self.recv_data_dict[name] = dataStruct[i]
+					heartbeat_count = self.recv_data_dict["sys_heartbeat_counter"]
 					
 				time.sleep(0.005)
 				
 			except socket.timeout:
 				pass
+				
+			if last_heartbeat_count != heartbeat_count:
+				last_heartbeat_count = heartbeat_count
+				watchdog_time = time.time()
+				
+			if time.time() - watchdog_time > 0.5:
+				print("timeout")
+				
+				
 				
 	def __sendLoop(self):
 		"""The send loop method is private and should only be called by
