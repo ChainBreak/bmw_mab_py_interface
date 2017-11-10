@@ -46,6 +46,7 @@ class BmwMabInterface():
 		"""
 		Constructor
 		"""
+		self.heartbeat_healthy = False
 		
 		#socket ips and ports
 		self.mab_ip = "192.168.0.5"
@@ -112,32 +113,44 @@ class BmwMabInterface():
 		the receive thread"""
 		heartbeat_count = 0
 		last_heartbeat_count = 0
-		watchdog_time = time.time()
+		watchdog_time = 0.0
+		
+		#calculate the number of bytes to unpack using the format
+		data_length = struct.calcsize(self.recv_format)
 		while self.running:
+			time.sleep(0.005)
 			try:
 				#read in data from socket
 				data, addr = self.recv_socket.recvfrom(1024) # buffer size is 1024 bytes
 				
-				data_length = struct.calcsize(self.recv_format)
+				#unpack the data in to tuple of ints/floats/etc definded by the format
 				dataStruct = struct.unpack(self.recv_format,data[:data_length])
 				
+				#lock the receive data to this therad
 				with self.recv_data_lock:
+					
+					#copy the contents of the tuple in to the dictionary of variables
 					for i in range(len(self.recv_data_name_list)):
 						name = self.recv_data_name_list[i]
 						self.recv_data_dict[name] = dataStruct[i]
+						
+					#take local copy of the  heartbeat counter of checking
 					heartbeat_count = self.recv_data_dict["sys_heartbeat_counter"]
 					
-				time.sleep(0.005)
-				
+			#silence time out exeption		
 			except socket.timeout:
 				pass
-				
+			#print any other exceptions but keep running
+			except Exception as e:
+				print(e)
+				time.sleep(1)
+			
+			
 			if last_heartbeat_count != heartbeat_count:
 				last_heartbeat_count = heartbeat_count
 				watchdog_time = time.time()
 				
-			if time.time() - watchdog_time > 0.5:
-				print("timeout")
+			self.heartbeat_healthy =  time.time() - watchdog_time < 0.5
 				
 				
 				
@@ -165,11 +178,16 @@ class BmwMabInterface():
 				self.send_socket.sendto(bytes, (self.mab_ip, self.send_to_port))
 				time.sleep(0.04)
 				
-			except socket.timeout:
+			except (socket.timeout,socket.error):
 				pass
+			except Exception as e:
+				print(type(e))
+				time.sleep(1)
 			
-
-
+	
+	def getStatus(self):
+		return( (self.heartbeat_healthy,))
+	
 	def getCarData(self, variable_name):
 		"""
 		Call this method to get the value for the variable name given.
