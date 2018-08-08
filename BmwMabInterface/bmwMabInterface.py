@@ -205,7 +205,7 @@ class BmwMabInterface():
 		with self.send_data_lock:
 				if variable_name in self.send_data_dict:
 					self.send_data_dict[variable_name] = value
-					print("%s: %s" % (variable_name, value))
+					#print("%s: %s" % (variable_name, value))
 			
 		
 	
